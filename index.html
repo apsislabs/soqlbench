@@ -76,26 +76,12 @@
     <div>
       <div class="flex items-center justify-between mb-1">
         <label class="block text-sm font-medium text-gray-700">Generated cURL</label>
-        <div class="flex items-center gap-2">
-          <button id="run-btn" onclick="runQuery()"
-            class="text-xs px-3 py-1 rounded border border-gray-300 text-gray-600 hover:border-gray-500 hover:text-gray-800 transition-colors">
-            Run
-          </button>
-          <button id="copy-btn" onclick="copyOutput()"
-            class="text-xs px-3 py-1 rounded border border-gray-300 text-gray-600 hover:border-gray-500 hover:text-gray-800 transition-colors">
-            Copy
-          </button>
-        </div>
+        <button id="copy-btn" onclick="copyOutput()"
+          class="text-xs px-3 py-1 rounded border border-gray-300 text-gray-600 hover:border-gray-500 hover:text-gray-800 transition-colors">
+          Copy
+        </button>
       </div>
       <pre id="output" class="bg-white border border-gray-300 rounded-md px-4 py-3 text-sm font-mono whitespace-pre-wrap break-all text-gray-400 min-h-[80px]">← fill in the fields above</pre>
-    </div>
-
-    <div id="response-section" class="hidden">
-      <div class="flex items-center justify-between mb-1">
-        <label class="block text-sm font-medium text-gray-700">Response</label>
-        <span id="response-meta" class="text-xs text-gray-400"></span>
-      </div>
-      <pre id="response-output" class="bg-white border border-gray-300 rounded-md px-4 py-3 text-sm font-mono whitespace-pre-wrap break-all min-h-[80px] max-h-96 overflow-auto"></pre>
     </div>
 
   </div>
@@ -128,25 +114,21 @@
     }
   }
 
-  // Wrap in single quotes, escaping any internal single quotes as '\''
+  // Wrap in single quotes, escaping ' as '\'' and ! as '\!'
   function zsh(str) {
-    return "'" + str.replace(/'/g, "'\\''") + "'";
-  }
-
-  function getUrl() {
-    const instance = document.getElementById('instance').value.trim().replace(/\/+$/, '') || '<instance>';
-    const soql = editor.getValue().trim() || '<SOQL>';
-    const ver = document.getElementById('api-version').value;
-    const tooling = document.getElementById('opt-tooling').checked;
-    const encoded = encodeURIComponent(soql.replace(/\s+/g, ' '));
-    const apiType = tooling ? 'tooling/' : '';
-    return `https://${instance}/services/data/v${ver}/${apiType}query?q=${encoded}`;
+    return "'" + str.replace(/'/g, "'\\''").replace(/!/g, "'\\!'") + "'";
   }
 
   function getRawCurl() {
+    const instance = document.getElementById('instance').value.trim().replace(/\/+$/, '') || '<instance>';
     const token = document.getElementById('token').value.trim() || '<token>';
+    const soql = editor.getValue().trim() || '<SOQL>';
+    const ver = document.getElementById('api-version').value;
+    const tooling = document.getElementById('opt-tooling').checked;
     const pretty = document.getElementById('opt-pretty').checked;
-    const url = getUrl();
+    const encoded = encodeURIComponent(soql.replace(/\s+/g, ' '));
+    const apiType = tooling ? 'tooling/' : '';
+    const url = `https://${instance}/services/data/v${ver}/${apiType}query?q=${encoded}`;
     const authHeader = zsh(`Authorization: Bearer ${token}`);
     const ctHeader = zsh('Content-Type: application/json');
     const quotedUrl = zsh(url);
@@ -178,54 +160,6 @@
       btn.textContent = 'Copied!';
       setTimeout(() => btn.textContent = 'Copy', 2000);
     });
-  }
-
-  async function runQuery() {
-    const token = document.getElementById('token').value.trim();
-    const instance = document.getElementById('instance').value.trim();
-    if (!token || !instance) {
-      alert('Instance and auth token are required to run the query.');
-      return;
-    }
-
-    const btn = document.getElementById('run-btn');
-    const section = document.getElementById('response-section');
-    const responseOut = document.getElementById('response-output');
-    const meta = document.getElementById('response-meta');
-
-    btn.textContent = 'Running…';
-    btn.disabled = true;
-    section.classList.remove('hidden');
-    responseOut.textContent = '';
-    responseOut.className = responseOut.className.replace('text-red-700', 'text-gray-800');
-    meta.textContent = '';
-
-    const start = Date.now();
-    try {
-      const res = await fetch(getUrl(), {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      const elapsed = Date.now() - start;
-      const json = await res.json();
-      meta.textContent = `HTTP ${res.status} · ${elapsed}ms${json.totalSize !== undefined ? ` · ${json.totalSize} record(s)` : ''}`;
-      if (!res.ok) {
-        responseOut.classList.add('text-red-700');
-        responseOut.classList.remove('text-gray-800');
-      }
-      responseOut.textContent = JSON.stringify(json, null, 2);
-    } catch (err) {
-      const elapsed = Date.now() - start;
-      meta.textContent = `Error · ${elapsed}ms`;
-      responseOut.classList.add('text-red-700');
-      responseOut.classList.remove('text-gray-800');
-      responseOut.textContent = err.message;
-    } finally {
-      btn.textContent = 'Run';
-      btn.disabled = false;
-    }
   }
 
   ['instance', 'token', 'opt-pretty', 'opt-tooling', 'api-version', 'opt-save-token'].forEach(id => {
