@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOQL → cURL</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .CodeMirror {
+    height: 140px;
+    font-size: 13px;
+    font-family: ui-monospace, monospace;
+    border-radius: 0.375rem;
+    border: 1px solid #d1d5db;
+  }
+  .CodeMirror-focused { border-color: #6b7280; }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen p-8">
+
+  <div class="max-w-3xl mx-auto space-y-6">
+
+    <div>
+      <h1 class="text-xl font-semibold text-gray-900">SOQL → cURL</h1>
+      <p class="text-sm text-gray-500">Generate a Salesforce REST API curl command from a SOQL query.</p>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Instance</label>
+        <div class="flex rounded-md border border-gray-300 overflow-hidden focus-within:border-gray-500 bg-white">
+          <span class="px-3 py-2 text-sm text-gray-400 bg-gray-50 border-r border-gray-300 whitespace-nowrap select-none">https://</span>
+          <input id="instance" type="text" placeholder="mycompany.my.salesforce.com"
+            class="flex-1 px-3 py-2 text-sm font-mono outline-none bg-white" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <label class="block text-sm font-medium text-gray-700">Auth Token</label>
+          <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+            <input type="checkbox" id="opt-save-token" class="rounded border-gray-300">
+            Save to localStorage
+          </label>
+        </div>
+        <input id="token" type="password" placeholder="00D…"
+          class="w-full px-3 py-2 text-sm font-mono rounded-md border border-gray-300 focus:border-gray-500 outline-none bg-white" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">SOQL Query</label>
+      <textarea id="soql-editor"></textarea>
+    </div>
+
+    <div class="flex items-center gap-6 text-sm">
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" id="opt-pretty" checked class="rounded border-gray-300">
+        Multiline
+      </label>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" id="opt-tooling" class="rounded border-gray-300">
+        Tooling API
+      </label>
+      <div class="flex items-center gap-2 ml-auto text-gray-600">
+        <span>API version</span>
+        <select id="api-version" class="text-sm border border-gray-300 rounded px-2 py-1 bg-white outline-none focus:border-gray-500">
+          <option>62.0</option><option>61.0</option><option>60.0</option>
+          <option>59.0</option><option>58.0</option>
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <div class="flex items-center justify-between mb-1">
+        <label class="block text-sm font-medium text-gray-700">Generated cURL</label>
+        <button id="copy-btn" onclick="copyOutput()"
+          class="text-xs px-3 py-1 rounded border border-gray-300 text-gray-600 hover:border-gray-500 hover:text-gray-800 transition-colors">
+          Copy
+        </button>
+      </div>
+      <pre id="output" class="bg-white border border-gray-300 rounded-md px-4 py-3 text-sm font-mono whitespace-pre-wrap break-all text-gray-400 min-h-[80px]">← fill in the fields above</pre>
+    </div>
+
+  </div>
+
+<script>
+  const editor = CodeMirror.fromTextArea(document.getElementById('soql-editor'), {
+    mode: 'text/x-sql',
+    lineNumbers: true,
+    lineWrapping: true,
+    extraKeys: { Tab: cm => cm.replaceSelection('  ') }
+  });
+
+  // Restore persisted values
+  const ls = localStorage;
+  document.getElementById('instance').value = ls.getItem('sf_instance') || '';
+  document.getElementById('api-version').value = ls.getItem('sf_api_version') || '62.0';
+  const saveToken = ls.getItem('sf_save_token') === 'true';
+  document.getElementById('opt-save-token').checked = saveToken;
+  if (saveToken) document.getElementById('token').value = ls.getItem('sf_token') || '';
+
+  function persist() {
+    ls.setItem('sf_instance', document.getElementById('instance').value.trim());
+    ls.setItem('sf_api_version', document.getElementById('api-version').value);
+    const save = document.getElementById('opt-save-token').checked;
+    ls.setItem('sf_save_token', save);
+    if (save) {
+      ls.setItem('sf_token', document.getElementById('token').value.trim());
+    } else {
+      ls.removeItem('sf_token');
+    }
+  }
+
+  function getRawCurl() {
+    const instance = document.getElementById('instance').value.trim().replace(/\/+$/, '') || '<instance>';
+    const token = document.getElementById('token').value.trim() || '<token>';
+    const soql = editor.getValue().trim() || '<SOQL>';
+    const ver = document.getElementById('api-version').value;
+    const tooling = document.getElementById('opt-tooling').checked;
+    const pretty = document.getElementById('opt-pretty').checked;
+    const encoded = encodeURIComponent(soql.replace(/\s+/g, ' '));
+    const apiType = tooling ? 'tooling/' : '';
+    const url = `https://${instance}/services/data/v${ver}/${apiType}query?q=${encoded}`;
+    if (pretty) {
+      return `curl -X GET \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  "${url}"`;
+    }
+    return `curl -X GET -H "Authorization: Bearer ${token}" -H "Content-Type: application/json" "${url}"`;
+  }
+
+  function generate() {
+    const out = document.getElementById('output');
+    const hasInput = document.getElementById('instance').value.trim()
+      || document.getElementById('token').value.trim()
+      || editor.getValue().trim();
+    if (!hasInput) {
+      out.textContent = '← fill in the fields above';
+      out.classList.add('text-gray-400');
+      out.classList.remove('text-gray-800');
+      return;
+    }
+    out.textContent = getRawCurl();
+    out.classList.remove('text-gray-400');
+    out.classList.add('text-gray-800');
+  }
+
+  function copyOutput() {
+    navigator.clipboard.writeText(getRawCurl()).then(() => {
+      const btn = document.getElementById('copy-btn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy', 2000);
+    });
+  }
+
+  ['instance', 'token', 'opt-pretty', 'opt-tooling', 'api-version', 'opt-save-token'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => { persist(); generate(); });
+    document.getElementById(id).addEventListener('change', () => { persist(); generate(); });
+  });
+  editor.on('change', generate);
+  generate();
+</script>
+</body>
+</html>
